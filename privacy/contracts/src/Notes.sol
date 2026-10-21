@@ -189,7 +189,7 @@ library Notes {
 }
 
 // The append-only commitment tree of the pool: depth 20, empty leaves zero, nodes P(left || right).
-// A commitment enters at most once: the nullifier is P(sk || commitment), so two identical notes would
+// A commitment enters at most once: the nullifier is P(rho || commitment), so two identical notes would
 // share one nullifier and one of them could never be spent.
 library CommitmentTree {
     uint256 internal constant DEPTH = 20;
