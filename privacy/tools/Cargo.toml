@@ -1,0 +1,24 @@
+[package]
+name = "ostra-swap-tools"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Generates the Solidity verifier's constants and test vectors from Plonky3 itself."
+
+[dependencies]
+ostra-swap-circuit = { path = "../circuit" }
+p3-air = "=0.8.0"
+p3-challenger = "=0.8.0"
+p3-commit = "=0.8.0"
+p3-field = "=0.8.0"
+p3-fri = "=0.8.0"
+p3-keccak = "=0.8.0"
+p3-koala-bear = "=0.8.0"
+p3-matrix = "=0.8.0"
+p3-merkle-tree = "=0.8.0"
+p3-poseidon2 = "=0.8.0"
+p3-symmetric = "=0.8.0"
+p3-uni-stark = "=0.8.0"
+rand = { version = "=0.10.1", default-features = false, features = ["std_rng"] }
+postcard = { version = "=1.1.3", default-features = false, features = ["alloc"] }

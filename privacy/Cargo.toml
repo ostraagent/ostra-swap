@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["circuit", "tools"]
+
+[profile.release]
+debug = false
