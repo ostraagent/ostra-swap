@@ -1,7 +1,7 @@
 {
   "name": "@ostraagent/swap",
   "version": "0.1.0",
-  "description": "Ostra Swap on Robinhood Chain: routes, quotes and transactions for OstraRouter (Uniswap v3 and v4 through USDG or WETH), the OSTRA lock and the escrow swaps of Ostra vaults.",
+  "description": "Ostra Swap on Robinhood Chain: routes, quotes and transactions for OstraRouter (Uniswap v3 and v4 through USDG or WETH), the OSTRA lock, the escrow swaps of Ostra vaults and private balances in OstraPrivatePool.",
   "type": "module",
   "engines": {
     "node": ">=24"

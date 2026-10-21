@@ -5,6 +5,7 @@ export * from "./constants.ts";
 export * from "./legs.ts";
 export * from "./orders.ts";
 export * from "./pools.ts";
+export * from "./private.ts";
 export * from "./reads.ts";
 export * from "./route.ts";
 export * from "./uniswap.ts";
