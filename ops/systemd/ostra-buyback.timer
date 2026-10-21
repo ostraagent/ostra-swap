@@ -1,0 +1,12 @@
+# Runs the Ostra Swap buyback and burn every hour.
+[Unit]
+Description=Ostra Swap buyback and burn, hourly
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

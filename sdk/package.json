@@ -1,0 +1,23 @@
+{
+  "name": "@ostraagent/swap",
+  "version": "0.1.0",
+  "description": "Ostra Swap on Robinhood Chain: routes, quotes and transactions for OstraRouter (Uniswap v3 and v4 through USDG or WETH), the OSTRA lock and the escrow swaps of Ostra vaults.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "viem": "2.57.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

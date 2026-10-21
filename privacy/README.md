@@ -81,9 +81,9 @@ with 4 elements. The prover's salts and random codewords come from the operating
 | Proven security (list decoding) | 72 bits |
 | Note hashes (8 KoalaBear elements, about 248 bits) | about 124 bits of collision resistance |
 | Proof size | about 75 KB |
-| `SpendVerifier.verify` | about 9.2M gas, plus about 1.2M gas of calldata |
+| `SpendVerifier.verify` | about 9.2M to 9.3M gas, plus about 1.2M gas of calldata |
 | `SpendVerifier` runtime size | 24,273 bytes |
-| One on-chain Poseidon2 permutation / one tree insert | about 99K gas / about 2.6M gas |
+| One on-chain Poseidon2 permutation / one tree insert | about 99K gas / 2.4M to 2.9M gas |
 
 ## Tests
 
@@ -98,7 +98,8 @@ cd contracts && forge test                         # verifier against Plonky3's 
   if that group were missing).
 - The Solidity verifier accepts real proofs (including one whose queries open the same leaf twice) and rejects every
   tampered variant exactly where Plonky3 does; its constraint fold, selectors and quotient match Plonky3's own code.
-- `SpendCliTest` verifies a fresh proof made by `ostra-prove` with operating-system randomness.
+- `SpendCliTest` verifies a proof that `ostra-prove prove` made, with operating-system randomness, from
+  `test/data/cli_request.json` (stored in `test/data/cli_proof.bin`).
 
 ## Prover
 
@@ -110,6 +111,12 @@ ostra-prove prove < spend.json        # {sk, rho, asset, amount, index, path, v,
                                       #   -> proof, public_values, change_rho, change_tag
 ```
 
+## Status
+
+The circuit, the nullifier design and the verifier were reviewed independently in several rounds, and every confirmed
+finding was fixed. There has been no paid audit, and nothing is deployed yet. The pool that uses this is
+`src/OstraPrivatePool.sol` in the repository root.
+
 ## License
 
-MIT
+MIT, see [LICENSE](../LICENSE).

@@ -1,0 +1,17 @@
+# Ostra Swap buyback-and-burn: one run of sdk/scripts/buyback.ts (claims the launchpad's buyback part, turns
+# OstraBuyback's balance into WETH, buys OSTRA and burns it). Started by ostra-buyback.timer.
+# Installed with @NODE@ replaced by the path of node.
+[Unit]
+Description=Ostra Swap buyback and burn of OSTRA (one run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/apps/ostra-swap/sdk
+ExecStart=@NODE@ scripts/buyback.ts
+TimeoutStartSec=900
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
