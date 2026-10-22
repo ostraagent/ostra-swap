@@ -25,7 +25,6 @@ import {
   USDG,
   WETH,
   changeNote,
-  cliProver,
   erc20Abi,
   findRoute,
   newSecret,
@@ -35,6 +34,8 @@ import {
   proveUnshield,
   provePrivateSwap,
   shieldCall,
+  shieldEscrowAddress,
+  shieldFromEscrowCall,
   shieldedNote,
   swapHash,
   swapOutputNote,
@@ -45,6 +46,7 @@ import {
   type Digest,
   type PrivateNote,
 } from "../src/index.ts";
+import { cliProver } from "../src/cli-prover.ts";
 
 const NVDA: Address = "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC";
 const PORT = 8_746;
@@ -167,6 +169,21 @@ test("shield: the note is the agent's and the SDK's trees are the pool's", { tim
   assert.equal(again.root(0), trees.root(0));
 });
 
+test("shield from an escrow, as a vault does: the SDK's escrow address is the pool's, and the note is the tag's owner's", { timeout: 600_000 }, async () => {
+  const rho = await newSecret(prover);
+  const tag = await tagOf(prover, sk, rho);
+  const escrow = shieldEscrowAddress(pool, USDG, tag);
+  assert.equal(escrow, getAddress((await poolRead("shieldEscrowAddress", [USDG, tag])) as Address));
+  // The sender only transfers; someone else (a relayer) has the pool take it.
+  await send(OTHER, { to: USDG, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [escrow, parseUnits("3", 6)] }) });
+  const r = await send(DEPLOYER, shieldFromEscrowCall(pool, USDG, tag), 5_000_000n);
+  const n = await shieldedNote(prover, sk, rho, r, pool);
+  assert.equal(n.amount, parseUnits("3", 6));
+  assert.equal(n.asset, USDG);
+  assert.equal(await balance(USDG, escrow), 0n);
+  await assertTreesMatch();
+});
+
 test("private swap USDG to NVDA through a relayer: the quote is paid into a note, the change stays private", { timeout: 900_000 }, async () => {
   const n = notes.shift() as PrivateNote;
   const v = parseUnits("120", 6);
@@ -235,7 +252,7 @@ test("unshield: the NVDA note in full, then part of the change through a relayer
   const s3 = await proveUnshield({ prover, sk, note: rest, trees, chainId: CHAIN_ID, pool, fee: 0n, relayer: ZERO, deadline, v: rest.amount, recipient: RECIPIENT });
   await send(OTHER, unshieldCall(pool, s3, RECIPIENT), 20_000_000n);
   assert.equal(await balance(USDG, RECIPIENT), parseUnits("78.5", 6));
-  // What is left in the pool is the other owner's note.
-  assert.equal(await balance(USDG, pool), parseUnits("5", 6));
+  // What is left in the pool is the other owner's note and the note shielded from an escrow.
+  assert.equal(await balance(USDG, pool), parseUnits("8", 6));
   await assertTreesMatch();
 });

@@ -3,8 +3,9 @@
 //
 // A note is a commitment P(value || tag) in one of the pool's commitment trees: value binds the token and the amount,
 // tag = P(rho || sk) the agent's secret key sk and the note's nonce rho. The agent keeps sk (one per agent) and each
-// note's rho; whoever knows them can spend the note. Proofs come from `ostra-prove` (privacy/circuit), run here as a
-// child process: sk and rho go to it on stdin, never on its command line.
+// note's rho; whoever knows them can spend the note. Proofs come from `ostra-prove` (privacy/circuit) through a Prover:
+// cli-prover.ts runs its binary as a child process on Node (sk and rho go to it on stdin, never on its command line);
+// this file imports nothing of Node's, so it also runs in a browser with another Prover.
 //
 // The pool's trees are rebuilt from its NoteAdded events (PoolTrees), in index order; a Merkle path is checked
 // against the root the pool recorded before a proof is made from it. Every spend is bound to its exact call through
@@ -12,9 +13,8 @@
 // check the two agree. A private swap pays the router's base fee (OstraRouter.swapAtBaseFee): its route is found
 // with feeBps PRIVATE_SWAP_FEE_BPS.
 
-import { spawn } from "node:child_process";
-import { encodeAbiParameters, encodeFunctionData, getAbiItem, getAddress, keccak256, parseEventLogs, toHex, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
-import { ostraPrivatePoolAbi } from "./abi.ts";
+import { encodeAbiParameters, encodeFunctionData, getAbiItem, getAddress, getContractAddress, keccak256, parseEventLogs, toHex, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
+import { OSTRA_SHIELD_ESCROW_CREATION_CODE, ostraPrivatePoolAbi } from "./abi.ts";
 import { ETH, LOG_WINDOW_BLOCKS } from "./constants.ts";
 import type { Leg } from "./legs.ts";
 import { routeHash } from "./orders.ts";
@@ -69,50 +69,6 @@ export function unpackDigest(d: Digest): string[] {
 
 /** One ostra-prove command: its JSON request (none for `secret`) and its JSON answer. */
 export type Prover = (command: "secret" | "note" | "path" | "prove", request?: unknown) => Promise<unknown>;
-
-/** How long one ostra-prove command may run before it is killed. */
-export const PROVER_TIMEOUT_MS = 120_000;
-
-/** Runs the ostra-prove binary at `binary`, one process per command. */
-export function cliProver(binary: string, timeoutMs = PROVER_TIMEOUT_MS): Prover {
-  return (command, request) =>
-    new Promise((resolve, reject) => {
-      const child = spawn(binary, [command], { stdio: ["pipe", "pipe", "pipe"] });
-      let settled = false;
-      const settle = (f: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        f();
-      };
-      // Unref'd, and cleared once settled: a binary that fails to start leaves no timer keeping the process up.
-      const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        settle(() => reject(new Error(`ostra-prove ${command} ran longer than ${timeoutMs} ms`)));
-      }, timeoutMs);
-      timer.unref();
-      let out = "";
-      let err = "";
-      child.stdout.on("data", (b: Buffer) => (out += b.toString()));
-      child.stderr.on("data", (b: Buffer) => (err += b.toString()));
-      child.on("error", (e) => settle(() => reject(e)));
-      // A prover that exits before reading its request (`secret` never reads it) closes the pipe: the exit code and
-      // stderr decide the answer, not the write (independent review, 21 Oct 2026: an unhandled EPIPE killed the process).
-      child.stdin.on("error", () => {});
-      child.on("close", (code, signal) =>
-        settle(() => {
-          if (code !== 0) return reject(new Error(`ostra-prove ${command} failed (${signal ?? code}): ${err.trim().slice(0, 300)}`));
-          try {
-            resolve(JSON.parse(out));
-          } catch {
-            reject(new Error(`ostra-prove ${command} did not answer JSON`));
-          }
-        }),
-      );
-      if (request === undefined) child.stdin.end();
-      else child.stdin.end(JSON.stringify(request));
-    });
-}
 
 function digestOf(v: unknown, what: string): Digest {
   if (!Array.isArray(v)) throw new Error(`ostra-prove gave no ${what}`);
@@ -456,6 +412,21 @@ export async function provePrivateSwap(r: SpendRequest & { route: Route; outRho:
 export function shieldCall(pool: Address, token: Address, amount: bigint, tag: Digest): { to: Address; data: Hex } {
   if (amount <= 0n || amount >= MAX_AMOUNT) throw new Error("shield an amount above 0 and below 2^128");
   return { to: getAddress(pool), data: encodeFunctionData({ abi: ostraPrivatePoolAbi, functionName: "shield", args: [getAddress(token), amount, tag] }) };
+}
+
+/**
+ * Where a sender that can only transfer (an Ostra vault) sends `token` to shield it for `tag`
+ * (OstraPrivatePool.shieldEscrowAddress, computed here as the pool does: CREATE2 of OstraShieldEscrow from the pool,
+ * salted with keccak256(abi.encode(token, tag))). Use a fresh tag (a fresh rho) for every shield.
+ */
+export function shieldEscrowAddress(pool: Address, token: Address, tag: Digest): Address {
+  const salt = keccak256(encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [getAddress(token), tag]));
+  return getContractAddress({ opcode: "CREATE2", from: getAddress(pool), salt, bytecode: OSTRA_SHIELD_ESCROW_CREATION_CODE });
+}
+
+/** OstraPrivatePool.shieldFromEscrow(token, tag): anyone may send it once the escrow holds the tokens; the note is the tag's owner's. */
+export function shieldFromEscrowCall(pool: Address, token: Address, tag: Digest): { to: Address; data: Hex } {
+  return { to: getAddress(pool), data: encodeFunctionData({ abi: ostraPrivatePoolAbi, functionName: "shieldFromEscrow", args: [getAddress(token), tag] }) };
 }
 
 export function unshieldCall(pool: Address, spend: Spend, recipient: Address): { to: Address; data: Hex } {

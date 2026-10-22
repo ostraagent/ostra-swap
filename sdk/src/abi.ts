@@ -2829,6 +2829,69 @@ export const ostraPrivatePoolAbi = [
   },
   {
     "type": "function",
+    "name": "shieldEscrowAddress",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tag",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "shieldFromEscrow",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tag",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "commitment",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "tree",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "received",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "swapHash",
     "inputs": [
       {
@@ -3214,6 +3277,11 @@ export const ostraPrivatePoolAbi = [
   },
   {
     "type": "error",
+    "name": "EscrowEmpty",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "Expired",
     "inputs": []
   },
@@ -3288,6 +3356,9 @@ export const ostraPrivatePoolAbi = [
 
 /** OstraSwapEscrow's creation code (without constructor arguments). */
 export const OSTRA_SWAP_ESCROW_CREATION_CODE = "0x60a0604052348015600e575f5ffd5b50336080526080516101736100365f395f8181603d01528181609b015260e901526101735ff3fe608060405234801561000f575f5ffd5b5060043610610034575f3560e01c806332fe7b2614610038578063c40768761461007b575b5f5ffd5b61005f7f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b03909116815260200160405180910390f35b61008e610089366004610131565b610090565b005b336001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016146100d957604051639e41bdd760e01b815260040160405180910390fd5b60405163a9059cbb60e01b8082527f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03811660048401526024830184905290915f8060448382895af1505050505050565b5f5f60408385031215610142575f5ffd5b82356001600160a01b0381168114610158575f5ffd5b94602093909301359350505056fea164736f6c634300081e000a" as const;
+
+/** OstraShieldEscrow's creation code (without constructor arguments). */
+export const OSTRA_SHIELD_ESCROW_CREATION_CODE = "0x60a0604052348015600e575f5ffd5b50336080526080516101736100365f395f8181603d01528181609b015260e901526101735ff3fe608060405234801561000f575f5ffd5b5060043610610034575f3560e01c80637535d24614610038578063c40768761461007b575b5f5ffd5b61005f7f000000000000000000000000000000000000000000000000000000000000000081565b6040516001600160a01b03909116815260200160405180910390f35b61008e610089366004610131565b610090565b005b336001600160a01b037f000000000000000000000000000000000000000000000000000000000000000016146100d957604051634b60273560e01b815260040160405180910390fd5b60405163a9059cbb60e01b8082527f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03811660048401526024830184905290915f8060448382895af1505050505050565b5f5f60408385031215610142575f5ffd5b82356001600160a01b0381168114610158575f5ffd5b94602093909301359350505056fea164736f6c634300081e000a" as const;
 
 export const ostraQuoteBatchAbi = [
   {

@@ -1,5 +1,6 @@
 # Writes sdk/src/abi.ts from the Foundry build (out/): the ABIs of OstraRouter, OstraStake, OstraBuyback and OstraPrivatePool,
-# OstraSwapEscrow's creation code (an escrow's address is CREATE2 of it) and OstraQuoteBatch (route.ts's quotes). Run after `forge build`.
+# OstraSwapEscrow's and OstraShieldEscrow's creation code (an escrow's address is CREATE2 of it) and OstraQuoteBatch (route.ts's
+# quotes). Run after `forge build`.
 import json, os, sys
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def art(f, c):
@@ -12,6 +13,11 @@ code = art('OstraRouter.sol', 'OstraSwapEscrow')['bytecode']['object']
 assert code.startswith('0x') and len(code) > 2
 out.append('/** OstraSwapEscrow\'s creation code (without constructor arguments). */')
 out.append(f'export const OSTRA_SWAP_ESCROW_CREATION_CODE = "{code}" as const;')
+out.append('')
+shield = art('OstraPrivatePool.sol', 'OstraShieldEscrow')['bytecode']['object']
+assert shield.startswith('0x') and len(shield) > 2
+out.append('/** OstraShieldEscrow\'s creation code (without constructor arguments). */')
+out.append(f'export const OSTRA_SHIELD_ESCROW_CREATION_CODE = "{shield}" as const;')
 out.append('')
 batch = art('OstraQuoteBatch.sol', 'OstraQuoteBatch')
 assert batch['bytecode']['object'].startswith('0x') and len(batch['bytecode']['object']) > 2

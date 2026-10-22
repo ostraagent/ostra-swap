@@ -7,7 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OstraBuyback} from "../src/OstraBuyback.sol";
 import {OstraRouter} from "../src/OstraRouter.sol";
 import {OstraStake} from "../src/OstraStake.sol";
-import {OstraPrivatePool} from "../src/OstraPrivatePool.sol";
+import {OstraPrivatePool, OstraShieldEscrow} from "../src/OstraPrivatePool.sol";
 import {SpendVerifier} from "../privacy/contracts/src/SpendVerifier.sol";
 import {Notes} from "../privacy/contracts/src/Notes.sol";
 import {Legs, PoolKey} from "./utils/Legs.sol";
@@ -151,6 +151,98 @@ contract PrivatePoolForkTest is Test {
         vm.expectRevert(OstraPrivatePool.CommitmentExists.selector);
         pool.shield(USDG, 5e6, tag);
         vm.stopPrank();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Shield from an escrow (a sender that can only transfer, such as an Ostra vault)
+    // ---------------------------------------------------------------------------------------------
+
+    /// @dev The vault transfers to the escrow; anyone (here the relayer) has the pool take it: the note is the tag's
+    ///      owner's, and it spends like any other.
+    function test_shieldFromEscrow_noteMatchesProverAndSpends() public {
+        bytes32 rho = _rho(1);
+        (bytes32 tag, bytes32 cm,) = _noteCli(rho, USDG, 40e6);
+        address escrow = pool.shieldEscrowAddress(USDG, tag);
+        assertEq(escrow.code.length, 0);
+        deal(USDG, user, 40e6);
+        vm.prank(user);
+        IERC20(USDG).transfer(escrow, 40e6);
+
+        vm.expectEmit(address(pool));
+        emit OstraPrivatePool.Shielded(escrow, USDG, 40e6, tag, cm);
+        vm.prank(relayer);
+        uint256 g = gasleft();
+        (bytes32 c, uint256 tree, uint256 index, uint256 received) = pool.shieldFromEscrow(USDG, tag);
+        console.log("shieldFromEscrow gas (escrow deployed)", g - gasleft());
+        assertEq(c, cm);
+        assertEq(tree, 0);
+        assertEq(index, 0);
+        assertEq(received, 40e6);
+        assertGt(escrow.code.length, 0);
+        assertEq(OstraShieldEscrow(escrow).POOL(), address(pool));
+        assertEq(_bal(USDG, escrow), 0);
+        assertEq(_bal(USDG, address(pool)), 40e6);
+        leaves.push(c);
+
+        uint64 deadline = uint64(block.timestamp + 1 hours);
+        Spend memory sp = _prove(Note(rho, USDG, 40e6, c, 0), 15e6, 1e6, pool.unshieldHash(relayer, deadline, recipient), relayer, deadline);
+        pool.unshield(sp.s, recipient, sp.proof);
+        assertEq(_bal(USDG, recipient), 15e6);
+        assertEq(_bal(USDG, relayer), 1e6);
+    }
+
+    /// @dev The escrow stays after its first note: more sent to it is another note of the same tag (another amount);
+    ///      the same amount again would be the same note, refused, and the escrow keeps it.
+    function test_shieldFromEscrow_againAndTheSameNoteRefused() public {
+        (bytes32 tag,,) = _noteCli(_rho(1), USDG, 5e6);
+        address escrow = pool.shieldEscrowAddress(USDG, tag);
+        deal(USDG, user, 20e6);
+        vm.startPrank(user);
+        IERC20(USDG).transfer(escrow, 5e6);
+        pool.shieldFromEscrow(USDG, tag);
+        IERC20(USDG).transfer(escrow, 7e6);
+        (bytes32 c,,, uint256 received) = pool.shieldFromEscrow(USDG, tag);
+        assertEq(received, 7e6);
+        assertEq(c, Notes.commitment(USDG, 7e6, tag));
+        IERC20(USDG).transfer(escrow, 5e6);
+        vm.expectRevert(OstraPrivatePool.CommitmentExists.selector);
+        pool.shieldFromEscrow(USDG, tag);
+        vm.stopPrank();
+        assertEq(_bal(USDG, escrow), 5e6);
+        assertEq(pool.treeSize(0), 2);
+    }
+
+    function test_shieldFromEscrow_rejects() public {
+        (bytes32 tag,,) = _noteCli(_rho(1), USDG, 5e6);
+        vm.expectRevert(OstraPrivatePool.ZeroToken.selector);
+        pool.shieldFromEscrow(address(0), tag);
+        vm.expectRevert(OstraPrivatePool.NotCanonical.selector);
+        pool.shieldFromEscrow(USDG, bytes32(uint256(P)));
+        vm.expectRevert(OstraPrivatePool.EscrowEmpty.selector);
+        pool.shieldFromEscrow(USDG, tag);
+        // Another token's escrow for the same tag is another address: tokens sent there are not this one's.
+        assertTrue(pool.shieldEscrowAddress(USDG, tag) != pool.shieldEscrowAddress(NVDA, tag));
+        address nvdaEscrow = pool.shieldEscrowAddress(NVDA, tag);
+        deal(NVDA, user, 1e18);
+        vm.prank(user);
+        IERC20(NVDA).transfer(nvdaEscrow, 1e18);
+        vm.expectRevert(OstraPrivatePool.EscrowEmpty.selector);
+        pool.shieldFromEscrow(USDG, tag);
+    }
+
+    /// @dev Only the pool moves what an escrow holds.
+    function test_shieldEscrow_onlyThePoolPays() public {
+        (bytes32 tag,,) = _noteCli(_rho(1), USDG, 5e6);
+        address escrow = pool.shieldEscrowAddress(USDG, tag);
+        deal(USDG, user, 10e6 + 1);
+        vm.startPrank(user);
+        IERC20(USDG).transfer(escrow, 5e6);
+        pool.shieldFromEscrow(USDG, tag);
+        IERC20(USDG).transfer(escrow, 5e6 + 1);
+        vm.expectRevert(OstraShieldEscrow.OnlyPool.selector);
+        OstraShieldEscrow(escrow).pay(USDG, 1);
+        vm.stopPrank();
+        assertEq(_bal(USDG, escrow), 5e6 + 1);
     }
 
     // ---------------------------------------------------------------------------------------------

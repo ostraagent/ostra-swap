@@ -9,6 +9,35 @@ import {OstraRouter} from "./OstraRouter.sol";
 import {SpendVerifier} from "../privacy/contracts/src/SpendVerifier.sol";
 import {Poseidon2, Notes, CommitmentTree} from "../privacy/contracts/src/Notes.sol";
 
+/// @title OstraShieldEscrow
+/// @notice The address an Ostra vault sends what it shields to (OstraPrivatePool.shieldEscrowAddress(token, tag)):
+///         a vault can transfer but not approve, so it cannot call shield. OstraPrivatePool deploys it with CREATE2 the
+///         first time it shields from it, and only the pool moves what it holds: pay sends the pool the amount the
+///         pool asks for, and nothing else can move it. pay never reverts on the token's account and copies none of
+///         the token's return data: the pool counts only what arrived.
+contract OstraShieldEscrow {
+    address public immutable POOL;
+
+    error OnlyPool();
+
+    constructor() {
+        POOL = msg.sender;
+    }
+
+    function pay(address token, uint256 amount) external {
+        if (msg.sender != POOL) revert OnlyPool();
+        bytes4 selector = IERC20.transfer.selector;
+        address to = POOL;
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, selector)
+            mstore(add(p, 0x04), and(to, 0xffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(p, 0x24), amount)
+            pop(call(gas(), token, 0, p, 0x44, 0, 0))
+        }
+    }
+}
+
 /// @title OstraPrivatePool
 /// @notice Private balances for Ostra Swap: an agent keeps ERC-20 tokens as notes in this pool and swaps or
 ///         withdraws them without showing which of its notes it spends, or whose they are. What stays public:
@@ -26,6 +55,10 @@ import {Poseidon2, Notes, CommitmentTree} from "../privacy/contracts/src/Notes.s
 ///         sees it can change where the funds go: a relayer or a front-runner can only send the call as it is.
 ///
 ///         * shield: anyone deposits a token for a tag; the pool counts what arrived and adds the note.
+///         * shieldFromEscrow: for a sender that can only transfer, such as an Ostra vault (decided 22 Oct 2026: agents
+///           shield from their vaults through MCP): the token is sent to shieldEscrowAddress(token, tag) first, and
+///           anyone (the relayer, in the same transaction) then has the pool take what that escrow holds and add the
+///           note for tag. The note is the tag's owner's whoever calls it.
 ///         * unshield: spends a note; v goes to the recipient the proof names.
 ///         * privateSwap: spends a note; v is swapped through OstraRouter along the route the proof names, for at
 ///           least minOut, and what the swap pays becomes a new note for the tag the proof names. The swap pays
@@ -131,6 +164,7 @@ contract OstraPrivatePool is ReentrancyGuardTransient {
     error BadSwap();
     error TooLittleReceived(uint256 minOut, uint256 amountOut);
     error CommitmentExists();
+    error EscrowEmpty();
 
     constructor(address verifier, address router) {
         VERIFIER = SpendVerifier(verifier);
@@ -159,6 +193,39 @@ contract OstraPrivatePool is ReentrancyGuardTransient {
         commitment = Notes.commitment(token, received, tag);
         (tree, index) = _add(commitment);
         emit Shielded(msg.sender, token, received, tag, commitment);
+    }
+
+    /// @notice Where to send `token` to shield it for `tag` with shieldFromEscrow: CREATE2 of OstraShieldEscrow from
+    ///         this pool, salted with keccak256(abi.encode(token, tag)).
+    function shieldEscrowAddress(address token, bytes32 tag) public view returns (address) {
+        bytes32 h = keccak256(
+            abi.encodePacked(bytes1(0xff), address(this), keccak256(abi.encode(token, tag)), keccak256(type(OstraShieldEscrow).creationCode))
+        );
+        return address(uint160(uint256(h)));
+    }
+
+    /// @notice Takes all of `token` that shieldEscrowAddress(token, tag) holds (deploying that escrow the first time)
+    ///         and adds a note of what arrived for `tag`. Anyone may call it: the note is the tag's owner's. Returns
+    ///         the note's commitment, tree, index and amount. A note equal to one already in the pool (the same tag
+    ///         and amount) is refused (CommitmentExists): the escrow keeps the tokens until more arrive.
+    function shieldFromEscrow(address token, bytes32 tag)
+        external
+        nonReentrant
+        returns (bytes32 commitment, uint256 tree, uint256 index, uint256 received)
+    {
+        if (token == address(0)) revert ZeroToken();
+        if (!Poseidon2.isCanonical(tag)) revert NotCanonical();
+        address escrow = shieldEscrowAddress(token, tag);
+        if (escrow.code.length == 0) new OstraShieldEscrow{salt: keccak256(abi.encode(token, tag))}();
+        uint256 held = IERC20(token).balanceOf(escrow);
+        if (held == 0) revert EscrowEmpty();
+        uint256 before = IERC20(token).balanceOf(address(this));
+        OstraShieldEscrow(escrow).pay(token, held);
+        received = IERC20(token).balanceOf(address(this)) - before;
+        if (received == 0) revert ZeroAmount();
+        commitment = Notes.commitment(token, received, tag);
+        (tree, index) = _add(commitment);
+        emit Shielded(escrow, token, received, tag, commitment);
     }
 
     // ---------------------------------------------------------------------------------------------
