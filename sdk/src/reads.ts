@@ -13,7 +13,7 @@ export type LockInfo = {
 
 export type Position = { amount: bigint; unlockAt: bigint; beneficiaries: Address[] };
 
-export async function lockInfo(client: PublicClient, d: SwapDeployment, account: Address): Promise<LockInfo> {
+export async function lockInfo(client: PublicClient, d: Pick<SwapDeployment, "stake">, account: Address): Promise<LockInfo> {
   const a = getAddress(account);
   const [lockedFor, feeBps] = await Promise.all([
     client.readContract({ address: d.stake, abi: ostraStakeAbi, functionName: "lockedFor", args: [a] }) as Promise<bigint>,
@@ -23,7 +23,7 @@ export async function lockInfo(client: PublicClient, d: SwapDeployment, account:
 }
 
 /** The position `locker` holds in OstraStake (amount 0: none). */
-export async function positionOf(client: PublicClient, d: SwapDeployment, locker: Address): Promise<Position> {
+export async function positionOf(client: PublicClient, d: Pick<SwapDeployment, "stake">, locker: Address): Promise<Position> {
   const [amount, unlockAt, beneficiaries] = (await client.readContract({ address: d.stake, abi: ostraStakeAbi, functionName: "positionOf", args: [getAddress(locker)] })) as readonly [bigint, number, readonly Address[]];
   return { amount, unlockAt: BigInt(unlockAt), beneficiaries: beneficiaries.map((b) => getAddress(b)) };
 }

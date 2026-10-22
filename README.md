@@ -30,7 +30,7 @@
 | `src/OstraPrivatePool.sol` | Private balances: `shield` turns a token into a note; `unshield` and `privateSwap` spend one with a STARK proof that hides which note it is and whose. No owner, no upgrade. |
 | `privacy/` | The spend circuit (Plonky3), the `ostra-prove` command-line prover and the Solidity verifier: [privacy/README.md](privacy/README.md). |
 | `test/` | Forge tests on a fork of Robinhood Chain mainnet: the real Universal Router, Uniswap v3 and v4 pools, USDG, WETH, stock tokens, OSTRA's curve and the live Ostra vault factory. The private pool's proofs are made during the tests by `ostra-prove`. |
-| `sdk/` | `@ostraagent/swap`: finds pools, quotes routes, builds the legs, orders, escrow addresses and calldata. Private balances (`src/private.ts`): notes, the pool's trees rebuilt from its events, proofs through `ostra-prove`, the bind hashes and the pool's calls. Also the deploy script (OstraStake, OstraBuyback, OstraRouter) and the hourly buyback run. |
+| `sdk/` | `@ostraagent/swap`: finds pools, quotes routes, builds the legs, orders, escrow addresses and calldata. Private balances (`src/private.ts`): notes, the pool's trees rebuilt from its events, proofs through `ostra-prove`, the bind hashes and the pool's calls. Also the deploy script (OstraStake, OstraBuyback, OstraRouter, SpendVerifier and OstraPrivatePool, each checked on chain, the record in `deployments/robinhood-mainnet.json`) and the hourly buyback run. |
 | `ops/systemd/` | The buyback service and timer. |
 
 ## Fees
@@ -136,6 +136,7 @@ python3 sdk/scripts/abi.py      # sdk/src/abi.ts from the build
 cd sdk && npm ci && npm run typecheck
 OSTRA_FORK_RPC=<rpc url> node --test test/route.fork.test.ts   # needs anvil
 node --test test/private.fork.test.ts                           # needs anvil and the prover built
+node --test test/deploy.fork.test.ts                            # the deploy script, as Ostra's deployer; needs anvil
 ```
 
 ## Security

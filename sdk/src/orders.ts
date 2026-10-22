@@ -6,7 +6,7 @@
 // computed here exactly as OstraRouter.escrowAddress does (CREATE2 of OstraSwapEscrow, which takes no constructor
 // arguments, with the order's hash as salt); the fork tests check the two agree.
 
-import { encodeAbiParameters, encodeFunctionData, getAddress, getContractAddress, keccak256, toHex, type Address, type Hex } from "viem";
+import { encodeAbiParameters, encodeFunctionData, getAddress, getContractAddress, isAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { OSTRA_SWAP_ESCROW_CREATION_CODE, ostraRouterAbi, ostraStakeAbi } from "./abi.ts";
 import { DEFAULT_ORDER_TTL_SECONDS, ETH, MAX_LOCK_BENEFICIARIES } from "./constants.ts";
 
@@ -26,7 +26,25 @@ export type SwapDeployment = {
   router: Address;
   stake: Address;
   buyback: Address;
+  /** SpendVerifier: checks the STARK proof of every private spend. */
+  spendVerifier: Address;
+  /** OstraPrivatePool: private balances; its trees are rebuilt from its events from fromBlock (PoolTrees). */
+  privatePool: Address;
 };
+
+/** Reads a deployment record (its JSON); throws naming the field that is missing or wrong. */
+export function parseSwapDeployment(json: unknown): SwapDeployment {
+  const r = json as Record<string, unknown> | null;
+  if (r === null || typeof r !== "object") throw new Error("the deployment record is not a JSON object");
+  if (typeof r.chainId !== "number" || !Number.isInteger(r.chainId)) throw new Error("the deployment record has no chainId");
+  if (typeof r.fromBlock !== "string" || !/^[0-9]+$/.test(r.fromBlock)) throw new Error("the deployment record has no fromBlock");
+  const addr = (name: string): Address => {
+    const v = r[name];
+    if (typeof v !== "string" || !isAddress(v, { strict: false })) throw new Error(`the deployment record has no ${name} address`);
+    return getAddress(v);
+  };
+  return { chainId: r.chainId, fromBlock: r.fromBlock, router: addr("router"), stake: addr("stake"), buyback: addr("buyback"), spendVerifier: addr("spendVerifier"), privatePool: addr("privatePool") };
+}
 
 /**
  * OstraRouter.Order: every term of a vault's order, bound by its escrow address. The fee is the recipient's (its
