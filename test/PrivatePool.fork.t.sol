@@ -39,10 +39,6 @@ interface IV4QuoterPool {
         returns (uint256 amountOut, uint256 gasEstimate);
 }
 
-interface IPonsCurveBuyPool {
-    function buy(uint256 ethIn, uint256 minOut, address recipient) external payable;
-}
-
 /// @notice OstraPrivatePool on a Robinhood Chain mainnet fork, end to end through the agent's prover: every proof is
 ///         made during the test by `ostra-prove` (privacy/target/release/ostra-prove, operating-system randomness),
 ///         from the pool's own tree and bind hashes, and checked by SpendVerifier on chain. Swaps go through the
@@ -560,9 +556,10 @@ contract PrivatePoolForkTest is Test {
     /// @dev Anyone may lock OSTRA for any account, the pool too: the private path still pays the base fee
     ///      (swapAtBaseFee), so such a lock cannot lower every note owner's fee at once (decided 21 Oct 2026).
     function test_privateSwap_baseFeeEvenWithALockNamingThePool() public {
-        vm.deal(user, 0.05 ether);
-        vm.prank(user);
-        IPonsCurveBuyPool(OSTRA_CURVE).buy{value: 0.05 ether}(0.05 ether, 1, user);
+        // OSTRA graduated on 22 Oct 2026: the user holds what 0.05 ETH buys in its pool (ETH/OSTRA, fee 0, tick
+        // spacing 200, the Pons V2 meme hook).
+        uint256 bought = _quoteV4(PoolKey({currency0: address(0), currency1: OSTRA, fee: 0, tickSpacing: 200, hooks: PONS_HOOK}), true, 0.05 ether);
+        deal(OSTRA, user, IERC20(OSTRA).balanceOf(user) + bought);
         address[] memory list = new address[](1);
         list[0] = address(pool);
         vm.startPrank(user);

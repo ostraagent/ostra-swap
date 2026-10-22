@@ -1,13 +1,16 @@
 // One buyback-and-burn run (systemd timer ostra-buyback.timer, hourly). With Ostra's deployer key, OstraBuyback's
 // owner and keeper:
 //   1. claims the Ostra launchpad's buyback part (OstraDispatcher.claimBuyback, owner only) of every pool quote
-//      currency the launchpad has launched with, to OstraBuyback;
+//      currency the launchpad has launched with, to OstraBuyback; the part owed in OSTRA needs no buy and goes
+//      straight to the burn address (OstraBuyback burns only the OSTRA it buys);
 //   2. turns what OstraBuyback holds besides WETH (USDG, stock tokens) into WETH (toWeth) along the Uniswap v3 path
 //      that simulates best: token to WETH, or token to USDG to WETH (the only paths OstraBuyback takes);
 //   3. buys OSTRA with its WETH and burns it: on OSTRA's Pons bonding curve while it trades (burnOnCurve), else in
 //      the Uniswap v4 pool Pons graduates OSTRA to (burnOnRouter; the pool is fixed in OstraBuyback).
 // Each trade is simulated first from the keeper (eth_call) and sent with that result less MAX_SLIPPAGE_BPS as its
-// minimum, so a trade that would fail is not sent. Amounts below the dust limits wait for the next run.
+// minimum, so a trade that would fail is not sent, with a gas limit of its estimate + GAS_LIMIT_MARGIN_PERCENT.
+// Amounts below the dust limits wait for the next run. The launches are read from the public RPC's logs; when that
+// read fails, the run goes on with USDG, ETH and OSTRA.
 //
 //   OSTRA_DEPLOYER_KEY_FILE   (0600) default /etc/ostra/deployer.key; never printed
 //   OSTRA_RPC_URL_FILE        (0600) default /etc/ostra/robinhood-rpc.url; never printed
@@ -17,10 +20,10 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createPublicClient, createWalletClient, encodeFunctionData, encodePacked, formatEther, getAddress, http, parseAbi, parseAbiItem, zeroAddress, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, createWalletClient, encodeFunctionData, encodePacked, formatEther, getAddress, http, parseAbi, parseAbiItem, zeroAddress, type Account, type Address, type Chain, type Hex, type PublicClient, type Transport, type WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ostraBuybackAbi } from "../src/abi.ts";
-import { ETH, ROBINHOOD_CHAIN_ID, ROBINHOOD_PUBLIC_RPC, TREASURY, UNISWAP_V3_FACTORY, USDG, V3_FEE_TIERS, WETH } from "../src/constants.ts";
+import { BURN_ADDRESS, ETH, OSTRA, ROBINHOOD_CHAIN_ID, ROBINHOOD_PUBLIC_RPC, TREASURY, UNISWAP_V3_FACTORY, USDG, V3_FEE_TIERS, WETH } from "../src/constants.ts";
 import type { SwapDeployment } from "../src/orders.ts";
 import { erc20Abi, v3FactoryAbi } from "../src/uniswap.ts";
 
@@ -29,6 +32,8 @@ export const MAX_SLIPPAGE_BPS = 100n;
 /** Below these, a balance waits for the next run: 1 USDG, 0.0002 WETH (about half a US dollar). */
 export const MIN_USDG = 1_000_000n;
 export const MIN_WETH = 200_000_000_000_000n;
+/** Gas limit = estimate + 20% (decided 17 Oct 2026, as Ostra's relayer): the L1 part of an estimate moves with the L1 price. */
+export const GAS_LIMIT_MARGIN_PERCENT = 20n;
 
 const dispatcherAbi = parseAbi([
   "function buybackOwed(address currency) view returns (uint256)",
@@ -45,6 +50,17 @@ function privateFile(path: string, what: string): string {
 function less(amount: bigint): bigint {
   return (amount * (10_000n - MAX_SLIPPAGE_BPS)) / 10_000n;
 }
+
+/** What one run needs: the chain, the keeper (Ostra's deployer, owner of OstraDispatcher), OstraBuyback and the launchpad. */
+export type BuybackRun = {
+  client: PublicClient;
+  logsClient: PublicClient;
+  wallet: WalletClient<Transport, Chain | undefined, Account>;
+  buyback: Address;
+  ostra: { fromBlock: string; launchpad?: { launchpad: Address; dispatcher: Address } };
+  log: (event: string, fields?: Record<string, unknown>) => void;
+  redact?: (text: string) => string;
+};
 
 async function main(): Promise<void> {
   const keyFile = process.env.OSTRA_DEPLOYER_KEY_FILE || "/etc/ostra/deployer.key";
@@ -66,15 +82,26 @@ async function main(): Promise<void> {
   const buyback = getAddress(d.buyback);
   const keeper = getAddress((await client.readContract({ address: buyback, abi: ostraBuybackAbi, functionName: "keeper" })) as Address);
   if (keeper !== account.address) throw new Error(`OstraBuyback's keeper is ${keeper}, not ${account.address}`);
+  const ostra = JSON.parse(readFileSync(ostraPath, "utf8")) as BuybackRun["ostra"];
+  await runBuyback({ client, logsClient, wallet, buyback, ostra, log, redact });
+}
+
+/** One run (steps 1 to 3 above) from `wallet`'s account, which must be OstraBuyback's keeper and the dispatcher's owner. */
+export async function runBuyback(o: BuybackRun): Promise<void> {
+  const { client, logsClient, wallet, buyback, ostra, log } = o;
+  const redact = o.redact ?? ((t: string) => t);
+  const account = wallet.account;
 
   const send = async (to: Address, data: Hex, what: string): Promise<boolean> => {
+    let estimated: bigint;
     try {
       await client.call({ account: account.address, to, data });
+      estimated = await client.estimateGas({ account: account.address, to, data });
     } catch (err) {
       log("skipped", { what, reason: redact((err as Error).message.split("\n")[0] ?? "") });
       return false;
     }
-    const hash = await wallet.sendTransaction({ to, data, chain: null });
+    const hash = await wallet.sendTransaction({ to, data, chain: null, gas: estimated + (estimated * GAS_LIMIT_MARGIN_PERCENT) / 100n });
     const r = await client.waitForTransactionReceipt({ hash, timeout: 120_000 });
     log(r.status === "success" ? "sent" : "reverted", { what, tx: hash, gasUsed: r.gasUsed });
     return r.status === "success";
@@ -91,27 +118,31 @@ async function main(): Promise<void> {
   const v3PoolExists = async (a: Address, b: Address, fee: number): Promise<boolean> =>
     ((await client.readContract({ address: UNISWAP_V3_FACTORY, abi: v3FactoryAbi, functionName: "getPool", args: [a, b, fee] })) as Address) !== zeroAddress;
 
-  // 1. The launchpad's buyback part, per quote currency it launched with.
-  const ostra = JSON.parse(readFileSync(ostraPath, "utf8")) as { fromBlock: string; launchpad?: { launchpad: Address; dispatcher: Address } };
-  const currencies = new Set<Address>([USDG, ETH]);
+  // 1. The launchpad's buyback part, per quote currency it launched with: OSTRA straight to the burn address.
+  const currencies = new Set<Address>([USDG, ETH, OSTRA]);
   if (ostra.launchpad !== undefined) {
-    const head = await logsClient.getBlockNumber();
-    for (let from = BigInt(ostra.fromBlock); from <= head; from += 10_000_000n) {
-      const to = from + 9_999_999n < head ? from + 9_999_999n : head;
-      for (const l of await logsClient.getLogs({ address: ostra.launchpad.launchpad, event: launchedEvent, fromBlock: from, toBlock: to })) {
-        if (l.args.quote !== undefined) currencies.add(getAddress(l.args.quote));
+    try {
+      const head = await logsClient.getBlockNumber();
+      for (let from = BigInt(ostra.fromBlock); from <= head; from += 10_000_000n) {
+        const to = from + 9_999_999n < head ? from + 9_999_999n : head;
+        for (const l of await logsClient.getLogs({ address: ostra.launchpad.launchpad, event: launchedEvent, fromBlock: from, toBlock: to })) {
+          if (l.args.quote !== undefined) currencies.add(getAddress(l.args.quote));
+        }
       }
+    } catch (err) {
+      log("launches_unread", { reason: redact((err as Error).message.split("\n")[0] ?? ""), currencies: [...currencies] });
     }
     for (const c of currencies) {
       const owed = (await client.readContract({ address: ostra.launchpad.dispatcher, abi: dispatcherAbi, functionName: "buybackOwed", args: [c] })) as bigint;
       if (owed === 0n) continue;
-      await send(ostra.launchpad.dispatcher, encodeFunctionData({ abi: dispatcherAbi, functionName: "claimBuyback", args: [c, buyback] }), `claim launchpad buyback ${c} ${owed}`);
+      const to = c === OSTRA ? BURN_ADDRESS : buyback;
+      await send(ostra.launchpad.dispatcher, encodeFunctionData({ abi: dispatcherAbi, functionName: "claimBuyback", args: [c, to] }), c === OSTRA ? `burn launchpad buyback OSTRA ${owed}` : `claim launchpad buyback ${c} ${owed}`);
     }
   }
 
   // 2. Everything but WETH into WETH (ETH arrives from the launchpad as WETH), along the Uniswap v3 path that
   //    simulates best: token to WETH directly, or through USDG.
-  for (const token of [...currencies].filter((c) => c !== ETH && c !== WETH && c !== zeroAddress)) {
+  for (const token of [...currencies].filter((c) => c !== ETH && c !== WETH && c !== OSTRA && c !== zeroAddress)) {
     const amount = await balanceOf(token);
     if (amount === 0n || (token === USDG && amount < MIN_USDG)) continue;
     const paths: Hex[] = [];

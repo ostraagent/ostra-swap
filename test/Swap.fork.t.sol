@@ -79,13 +79,9 @@ interface IMulticall3 {
     function aggregate3(Call3[] calldata calls) external payable returns (Result[] memory returnData);
 }
 
-interface IPonsCurveBuy {
-    function buy(uint256 ethIn, uint256 minOut, address recipient) external payable;
-}
-
 /// @notice Ostra Swap on a Robinhood Chain mainnet fork: the real Universal Router, Uniswap v3 and v4 pools, USDG,
-///         WETH, stock tokens, OSTRA on its Pons bonding curve and the live Ostra vault factory. Balances are set
-///         with deal() where a test needs a holder; OSTRA is bought on its curve.
+///         WETH, stock tokens, OSTRA in the pool Pons graduated it to (22 Oct 2026) and the live Ostra vault factory.
+///         Balances are set with deal() where a test needs a holder; OSTRA as much as its pool quotes for the ETH.
 contract SwapForkTest is Test {
     uint256 internal constant ROBINHOOD_CHAIN_ID = 4663;
 
@@ -150,6 +146,13 @@ contract SwapForkTest is Test {
     function _ethUsdgV4() internal pure returns (PoolKey memory key) {
         key = PoolKey({currency0: address(0), currency1: USDG, fee: 500, tickSpacing: 10, hooks: address(0)});
         assertEq(keccak256(abi.encode(key)), 0x387bf619da4d3fb62bb276482693dba1b9b3520f573cabdfe033384a24125982);
+    }
+
+    /// @dev The pool Pons graduated OSTRA to on 22 Oct 2026: ETH/OSTRA on Uniswap v4, fee 0, tick spacing 200, the
+    ///      Pons V2 meme hook (OstraBuyback.ostraPoolKey): pool id 0x3c77…0df1.
+    function _ostraV4() internal pure returns (PoolKey memory key) {
+        key = PoolKey({currency0: address(0), currency1: OSTRA, fee: 0, tickSpacing: 200, hooks: PONS_HOOK});
+        assertEq(keccak256(abi.encode(key)), 0x3c7724844c26d84c929359adc92bad9242193f7905b04bc99d5cae5587f50df1);
     }
 
     function _quoteV3(address tokenIn, uint24 fee, address tokenOut, uint256 amountIn) internal returns (uint256 out) {
@@ -355,13 +358,10 @@ contract SwapForkTest is Test {
     // ---------------------------------------------------------------------------------------------
 
     /// @dev Buys OSTRA on its Pons bonding curve with real ETH, for `to`.
+    /// @dev Gives `to` the OSTRA `ethIn` buys in OSTRA's pool now (its curve graduated on 22 Oct 2026).
     function _buyOstra(address to, uint256 ethIn) internal returns (uint256 got) {
-        vm.deal(to, ethIn);
-        uint256 before = _bal(OSTRA, to);
-        vm.prank(to);
-        IPonsCurveBuy(OSTRA_CURVE).buy{value: ethIn}(ethIn, 1, to);
-        got = _bal(OSTRA, to) - before;
-        assertGt(got, 0);
+        got = _quoteV4(_ostraV4(), true, ethIn);
+        deal(OSTRA, to, _bal(OSTRA, to) + got);
     }
 
     function _one(address a) internal pure returns (address[] memory list) {
@@ -1242,7 +1242,7 @@ contract SwapForkTest is Test {
         new ForceEth{value: 1}(address(buyback));
         deal(WETH, address(buyback), 0.01 ether);
         vm.prank(keeper);
-        assertGt(buyback.burnOnCurve(0.01 ether, 1), 0);
+        assertGt(buyback.burnOnRouter(0.01 ether, 1), 0);
         assertEq(address(buyback).balance, 1);
     }
 
@@ -1351,7 +1351,7 @@ contract SwapForkTest is Test {
     // Buyback and burn
     // ---------------------------------------------------------------------------------------------
 
-    function test_buyback_usdgToWeth_thenBurnOnCurve() public {
+    function test_buyback_usdgToWeth_thenBurnOnRouter() public {
         deal(USDG, address(buyback), 200e6);
         uint256 expectedWeth = _quoteV3(USDG, 100, WETH, 200e6);
         bytes memory path = abi.encodePacked(USDG, uint24(100), WETH);
@@ -1366,10 +1366,11 @@ contract SwapForkTest is Test {
         assertEq(_bal(USDG, address(buyback)), 0);
 
         uint256 deadBefore = _bal(OSTRA, DEAD);
+        uint256 expected = _quoteV4(_ostraV4(), true, weth);
         vm.recordLogs();
         vm.prank(keeper);
-        uint256 burned = buyback.burnOnCurve(weth, 1);
-        assertGt(burned, 0);
+        uint256 burned = buyback.burnOnRouter(weth, expected);
+        assertEq(burned, expected);
         console.log("OSTRA burned for the WETH", burned, weth);
         assertEq(_bal(OSTRA, DEAD) - deadBefore, burned);
         assertEq(_bal(OSTRA, address(buyback)), 0);
@@ -1412,12 +1413,12 @@ contract SwapForkTest is Test {
         assertEq(_bal(USDG, address(buyback)), 200e6);
     }
 
-    /// @dev Before OSTRA graduates its v4 pool does not exist: burnOnRouter fails and moves nothing.
-    function test_buyback_burnOnRouter_beforeGraduation_reverts() public {
+    /// @dev OSTRA graduated on 22 Oct 2026: its curve takes no buy, so burnOnCurve fails and moves nothing.
+    function test_buyback_burnOnCurve_afterGraduation_reverts() public {
         deal(WETH, address(buyback), 0.01 ether);
         vm.prank(keeper);
         vm.expectRevert();
-        buyback.burnOnRouter(0.01 ether, 1);
+        buyback.burnOnCurve(0.01 ether, 1);
         assertEq(_bal(WETH, address(buyback)), 0.01 ether);
     }
 
@@ -1435,11 +1436,11 @@ contract SwapForkTest is Test {
         assertEq(_bal(WETH, address(h)), 0);
     }
 
-    function test_buyback_curveMinimumHolds() public {
+    function test_buyback_routerMinimumHolds() public {
         deal(WETH, address(buyback), 0.01 ether);
         vm.prank(keeper);
         vm.expectRevert();
-        buyback.burnOnCurve(0.01 ether, type(uint256).max);
+        buyback.burnOnRouter(0.01 ether, type(uint256).max);
         assertEq(_bal(WETH, address(buyback)), 0.01 ether);
     }
 
