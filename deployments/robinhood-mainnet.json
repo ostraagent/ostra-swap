@@ -1,0 +1,9 @@
+{
+  "chainId": 4663,
+  "fromBlock": "94940585",
+  "router": "0x5b9686f384A5Fb768B2360cF0B893F0d1E960B01",
+  "stake": "0xaDA4FaB9c8aB9165bf4d6cD9d4Da6d6b32Bb4BC6",
+  "buyback": "0xd86083031b7Af66ecD5C9c5e90D4C6d8E661F3f5",
+  "spendVerifier": "0x0a0E28a81DE6289e5044950163FfE95b37180e3B",
+  "privatePool": "0xe4250895Da2499602Cee4e178Fb46A0cF39F5b76"
+}

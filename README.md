@@ -33,6 +33,20 @@
 | `sdk/` | `@ostraagent/swap`: finds pools, quotes routes, builds the legs, orders, escrow addresses and calldata. Private balances (`src/private.ts`): notes, the pool's trees rebuilt from its events, proofs through `ostra-prove`, the bind hashes and the pool's calls. Also the deploy script (OstraStake, OstraBuyback, OstraRouter, SpendVerifier and OstraPrivatePool, each checked on chain, the record in `deployments/robinhood-mainnet.json`) and the hourly buyback run. |
 | `ops/systemd/` | The buyback service and timer. |
 
+## Deployed contracts
+
+Robinhood Chain mainnet, chain ID 4663, deployed on 22 October 2026 from block 94940585 by Ostra's deployer
+(`0x6569E27A95a6A3E92A311B4Cc6600fed56aA50A2`, which owns OstraBuyback and is its keeper) and checked on chain by the
+deploy script; the record is [`deployments/robinhood-mainnet.json`](deployments/robinhood-mainnet.json).
+
+| Contract | Address |
+|---|---|
+| OstraRouter | [`0x5b9686f384A5Fb768B2360cF0B893F0d1E960B01`](https://robinhoodchain.blockscout.com/address/0x5b9686f384A5Fb768B2360cF0B893F0d1E960B01) |
+| OstraPrivatePool | [`0xe4250895Da2499602Cee4e178Fb46A0cF39F5b76`](https://robinhoodchain.blockscout.com/address/0xe4250895Da2499602Cee4e178Fb46A0cF39F5b76) |
+| SpendVerifier | [`0x0a0E28a81DE6289e5044950163FfE95b37180e3B`](https://robinhoodchain.blockscout.com/address/0x0a0E28a81DE6289e5044950163FfE95b37180e3B) |
+| OstraStake | [`0xaDA4FaB9c8aB9165bf4d6cD9d4Da6d6b32Bb4BC6`](https://robinhoodchain.blockscout.com/address/0xaDA4FaB9c8aB9165bf4d6cD9d4Da6d6b32Bb4BC6) |
+| OstraBuyback | [`0xd86083031b7Af66ecD5C9c5e90D4C6d8E661F3f5`](https://robinhoodchain.blockscout.com/address/0xd86083031b7Af66ecD5C9c5e90D4C6d8E661F3f5) |
+
 ## Fees
 
 | OSTRA locked for the account | Ostra fee |
@@ -148,7 +162,7 @@ whoever executes an order, ETH forced into the router, overdue DCA tranches run 
 input in the Universal Router) are tests in `test/Swap.fork.t.sol` now. The private pool was reviewed independently too
 (a full commitment tree freezing every note, now trees that roll over; a lock naming the pool lowering every owner's
 fee, now `swapAtBaseFee`), and so were the spend circuit and its verifier ([privacy/README.md](privacy/README.md)).
-There has been no paid audit, and nothing in this repository is deployed yet.
+There has been no paid audit.
 
 ## License
 
