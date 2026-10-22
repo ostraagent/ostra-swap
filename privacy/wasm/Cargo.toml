@@ -1,0 +1,16 @@
+[package]
+name = "ostra-swap-prover-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "ostra-prove as WebAssembly for Node and browsers: the same commands and JSON, randomness from crypto.getRandomValues."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ostra-swap-circuit = { path = "../circuit" }
+wasm-bindgen = "=0.2.129"
+# The final WebAssembly artifact picks getrandom's backend: crypto.getRandomValues through wasm-bindgen.
+getrandom = { version = "=0.4.3", features = ["wasm_js"] }

@@ -34,6 +34,7 @@
 //! extension of KoalaBear and Keccak-256 Merkle commitments: hashes only, no elliptic curve, no
 //! trusted setup.
 
+pub mod api;
 pub mod flat;
 
 use std::borrow::{Borrow, BorrowMut, Cow};
@@ -120,11 +121,11 @@ pub fn test_seed(n: u64) -> [u8; 32] {
     s
 }
 
-/// 32 bytes from the operating system's random source.
+/// 32 bytes from the operating system's random source (getrandom: the system call or its equivalent on each
+/// operating system; `crypto.getRandomValues` in the WebAssembly build).
 pub fn os_seed() -> std::io::Result<[u8; 32]> {
-    use std::io::Read;
     let mut s = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut s)?;
+    getrandom::fill(&mut s).map_err(std::io::Error::other)?;
     Ok(s)
 }
 
@@ -766,16 +767,14 @@ pub fn pack_digest(d: &Digest) -> [u8; 32] {
     b
 }
 
-/// A uniformly random digest (8 field elements) from the operating system's random source, for a
+/// A uniformly random digest (8 field elements) from the operating system's random source (`os_seed`'s), for a
 /// secret key or a note nonce.
 pub fn os_digest() -> std::io::Result<Digest> {
-    use std::io::Read;
-    let mut f = std::fs::File::open("/dev/urandom")?;
     let mut d = [Val::ZERO; 8];
     for x in d.iter_mut() {
         loop {
             let mut b = [0u8; 4];
-            f.read_exact(&mut b)?;
+            getrandom::fill(&mut b).map_err(std::io::Error::other)?;
             let v = u32::from_le_bytes(b) & 0x7fff_ffff;
             if v < Val::ORDER_U32 {
                 *x = Val::from_u32(v);

@@ -30,7 +30,9 @@ large quantum computer, hash-based STARKs do not.
 | --- | --- |
 | `circuit/src/lib.rs` | The note model and the spend circuit (`SpendAir`), its witness and trace, the proof configuration, prove and verify. |
 | `circuit/src/flat.rs` | The flat calldata layout of a proof, read by the Solidity verifier; encode and decode. |
-| `circuit/src/bin/ostra-prove.rs` | `ostra-prove`, the command-line prover an agent runs: secrets, notes, Merkle paths, proofs. |
+| `circuit/src/api.rs` | The prover's commands and their JSON: secrets, notes, Merkle paths, proofs. |
+| `circuit/src/bin/ostra-prove.rs` | `ostra-prove`, the command-line prover: one command, JSON on stdin and stdout. |
+| `wasm/` | The same prover as WebAssembly for Node and browsers (wasm-bindgen), the one the MCP package carries. |
 | `contracts/src/SpendVerifier.sol` | The on-chain verifier. Follows Plonky3's `p3_uni_stark::verify` step for step. |
 | `contracts/src/Notes.sol` | On-chain Poseidon2, note commitments, the commitment tree and the public values a pool hands the verifier. |
 | `contracts/src/SpendConstants.sol` | Generated from Plonky3: transcript seeds, domains, Poseidon2 constants, empty subtree roots. |
@@ -110,6 +112,24 @@ ostra-prove path  < leaves.json       # {leaves, index} -> root, path
 ostra-prove prove < spend.json        # {sk, rho, asset, amount, index, path, v, fee, bind_hash, root?, change_rho?}
                                       #   -> proof, public_values, change_rho, change_tag
 ```
+
+Randomness comes from the operating system through `getrandom`. The WebAssembly build runs the same commands in the
+calling process, with randomness from `crypto.getRandomValues`:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+wasm/build.sh                         # wasm/pkg: ostra_prove.js (initSync, prover) and ostra_prove_bg.wasm
+```
+
+```js
+import { initSync, prover } from "./wasm/pkg/ostra_prove.js";
+initSync({ module: wasmBytes });
+JSON.parse(prover("prove", JSON.stringify(spend)));
+```
+
+`sdk/test/wasm-prover.test.ts` checks it against the native prover: the same notes and paths, the same public values,
+and every proof accepted by `SpendVerifier`.
 
 ## Status
 

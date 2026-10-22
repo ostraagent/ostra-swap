@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["circuit", "tools"]
+members = ["circuit", "tools", "wasm"]
 
 [profile.release]
 debug = false

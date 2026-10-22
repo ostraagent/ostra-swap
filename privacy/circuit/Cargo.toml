@@ -23,6 +23,8 @@ p3-symmetric = "=0.8.0"
 p3-uni-stark = "=0.8.0"
 rand = { version = "=0.10.1", default-features = false, features = ["std_rng"] }
 serde_json = "=1.0.149"
+# The operating system's random source (privacy/wasm turns on its wasm_js backend for the WebAssembly build).
+getrandom = "=0.4.3"
 
 [[bin]]
 name = "ostra-prove"
