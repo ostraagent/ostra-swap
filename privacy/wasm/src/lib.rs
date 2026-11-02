@@ -5,7 +5,8 @@
 
 use wasm_bindgen::prelude::*;
 
-/// Runs `command` ("secret", "note", "path" or "prove") on `request` (JSON; ignored by "secret").
+/// Runs `command` ("secret", "note", "path", "prove", "rep-id", "rep-record" or "rep-prove") on `request` (JSON; ignored
+/// by "secret").
 #[wasm_bindgen]
 pub fn prover(command: &str, request: &str) -> Result<String, JsError> {
     ostra_swap_circuit::api::run(command, request).map_err(|e| JsError::new(&format!("ostra-prove: {e}")))

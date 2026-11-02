@@ -1,4 +1,5 @@
-//! The flat calldata layout of a spend proof, read by the Solidity verifier (SpendVerifier.sol).
+//! The flat calldata layout of a spend proof, read by the Solidity verifier (SpendVerifier.sol), and of a reputation
+//! proof (rep.rs, RepVerifier.sol): the same layout with the reputation trace's width (encode_width, decode_width).
 //!
 //! Integers are big-endian; a field element is its canonical value as 4 bytes; an extension element
 //! is its 8 basis coefficients as 4-byte values, coefficient 7 first, so one 32-byte word holds
@@ -39,21 +40,48 @@ pub const O_TRACE: usize = 0;
 pub const O_QUOT: usize = 32;
 pub const O_RAND: usize = 64;
 pub const O_TL: usize = 96;
-pub const O_TN: usize = O_TL + TRACE_WIDTH * 32;
-pub const O_QC: usize = O_TN + TRACE_WIDTH * 32;
-pub const O_RV: usize = O_QC + QUOTIENT_CHUNKS * EXT * 32;
-pub const O_RCW: usize = O_RV + EXT * 32;
 pub const RCW_SETS: usize = 3 + QUOTIENT_CHUNKS;
-pub const O_BPW: usize = O_RCW + RCW_SETS * NUM_RANDOM_CODEWORDS * 32;
-pub const O_COMMITS: usize = O_BPW + 4;
+
+/// Offsets of the sections after the trace openings, for a trace of `width` columns (the layout is the same for every
+/// AIR of this configuration: only the trace width changes it).
+pub struct Offsets {
+    pub tn: usize,
+    pub qc: usize,
+    pub rv: usize,
+    pub rcw: usize,
+    pub bpw: usize,
+    pub commits: usize,
+}
+
+pub const fn offsets(width: usize) -> Offsets {
+    let tn = O_TL + width * 32;
+    let qc = tn + width * 32;
+    let rv = qc + QUOTIENT_CHUNKS * EXT * 32;
+    let rcw = rv + EXT * 32;
+    let bpw = rcw + RCW_SETS * NUM_RANDOM_CODEWORDS * 32;
+    Offsets { tn, qc, rv, rcw, bpw, commits: bpw + 4 }
+}
+
+// The spend circuit's offsets.
+pub const O_TN: usize = offsets(TRACE_WIDTH).tn;
+pub const O_QC: usize = offsets(TRACE_WIDTH).qc;
+pub const O_RV: usize = offsets(TRACE_WIDTH).rv;
+pub const O_RCW: usize = offsets(TRACE_WIDTH).rcw;
+pub const O_BPW: usize = offsets(TRACE_WIDTH).bpw;
+pub const O_COMMITS: usize = offsets(TRACE_WIDTH).commits;
 
 type Digest32 = [u8; 32];
 type SaltsAndPaths = (Vec<Vec<Vec<Val>>>, PrunedMerklePaths<u8, 32>);
 
-/// Widths of the committed matrices of the three input batches, random-codeword columns included.
+/// Widths of the committed matrices of the three input batches, random-codeword columns included (spend circuit).
 pub fn batch_widths() -> [Vec<usize>; 3] {
+    batch_widths_for(TRACE_WIDTH)
+}
+
+/// Widths of the committed matrices of the three input batches for a trace of `width` columns.
+pub fn batch_widths_for(width: usize) -> [Vec<usize>; 3] {
     let r = NUM_RANDOM_CODEWORDS;
-    [vec![EXT + r], vec![TRACE_WIDTH + r], vec![EXT + r; QUOTIENT_CHUNKS]]
+    [vec![EXT + r], vec![width + r], vec![EXT + r; QUOTIENT_CHUNKS]]
 }
 
 /// Opening points per matrix of each batch: the trace opens at zeta and zeta * g.
@@ -87,7 +115,13 @@ impl Writer {
     }
 }
 
+/// A spend proof in the flat layout.
 pub fn encode(proof: &Proof<Config>) -> Vec<u8> {
+    encode_width(proof, TRACE_WIDTH)
+}
+
+/// A proof of an AIR of `width` columns in the flat layout.
+pub fn encode_width(proof: &Proof<Config>, width: usize) -> Vec<u8> {
     let mut w = Writer(Vec::new());
     let ov = &proof.opened_values;
     let (rand_cws, fri) = &proof.opening_proof;
@@ -98,10 +132,10 @@ pub fn encode(proof: &Proof<Config>) -> Vec<u8> {
     w.root(&proof.commitments.trace);
     w.root(&proof.commitments.quotient_chunks);
     w.root(proof.commitments.random.as_ref().expect("hiding PCS"));
-    assert_eq!(ov.trace_local.len(), TRACE_WIDTH);
+    assert_eq!(ov.trace_local.len(), width);
     ov.trace_local.iter().for_each(|e| w.ext(e));
     let next = ov.trace_next.as_ref().expect("the AIR reads the next row");
-    assert_eq!(next.len(), TRACE_WIDTH);
+    assert_eq!(next.len(), width);
     next.iter().for_each(|e| w.ext(e));
     assert_eq!(ov.quotient_chunks.len(), QUOTIENT_CHUNKS);
     for ch in &ov.quotient_chunks {
@@ -130,7 +164,7 @@ pub fn encode(proof: &Proof<Config>) -> Vec<u8> {
     fri.final_poly.iter().for_each(|e| w.ext(e));
     w.val(fri.query_pow_witness);
     assert_eq!(fri.input_openings.len(), 3);
-    for (batch, widths) in fri.input_openings.iter().zip(batch_widths()) {
+    for (batch, widths) in fri.input_openings.iter().zip(batch_widths_for(width)) {
         let (salts, paths) = &batch.opening_proof;
         assert_eq!(batch.opened_values.len(), NUM_QUERIES);
         assert_eq!(salts.len(), NUM_QUERIES);
@@ -212,15 +246,20 @@ impl Reader<'_> {
     }
 }
 
-/// The Plonky3 proof a flat encoding carries; errors on anything Plonky3 could not represent
+/// The Plonky3 spend proof a flat encoding carries; errors on anything Plonky3 could not represent
 /// (non-canonical elements, wrong lengths).
 pub fn decode(d: &[u8]) -> Result<Proof<Config>, DecodeError> {
+    decode_width(d, TRACE_WIDTH)
+}
+
+/// The Plonky3 proof of an AIR of `width` columns a flat encoding carries.
+pub fn decode_width(d: &[u8], width: usize) -> Result<Proof<Config>, DecodeError> {
     let mut r = Reader { d, p: 0 };
     let trace = r.cap()?;
     let quotient = r.cap()?;
     let random_commit = r.cap()?;
-    let trace_local = r.exts(TRACE_WIDTH)?;
-    let trace_next = r.exts(TRACE_WIDTH)?;
+    let trace_local = r.exts(width)?;
+    let trace_next = r.exts(width)?;
     let quotient_chunks = (0..QUOTIENT_CHUNKS).map(|_| r.exts(EXT)).collect::<Result<_, _>>()?;
     let random = r.exts(EXT)?;
     let mut rand_cws = Vec::new();
@@ -237,7 +276,7 @@ pub fn decode(d: &[u8]) -> Result<Proof<Config>, DecodeError> {
     let final_poly = r.exts(FINAL_POLY_LEN)?;
     let query_pow_witness = r.val()?;
     let mut input_openings = Vec::new();
-    for widths in batch_widths() {
+    for widths in batch_widths_for(width) {
         let mut opened = Vec::new();
         let mut salts = Vec::new();
         for _ in 0..NUM_QUERIES {

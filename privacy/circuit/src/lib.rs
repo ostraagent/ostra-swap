@@ -36,6 +36,7 @@
 
 pub mod api;
 pub mod flat;
+pub mod rep;
 
 use std::borrow::{Borrow, BorrowMut, Cow};
 use std::mem::MaybeUninit;

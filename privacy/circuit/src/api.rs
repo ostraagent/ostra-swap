@@ -11,6 +11,20 @@
 //!            "bind_hash": "0x.." (32 bytes), "root": [8] (optional), "change_rho": [8] (optional)}
 //!           -> {"proof": "0x..", "public_values": [48], "change_rho": [8], "change_tag": [8]}
 //!
+//!   rep-id     {"sk"} -> {"idc": [8]}  the identity commitment of a reputation secret (an sk from `secret` used for
+//!              reputation only, never a note's sk)
+//!   rep-record {"record": {"completed", "clients", "volume", "rejected", "expired", "tier", "first_day", "epoch"},
+//!               "idc": [8]} -> {"record": [8], "leaf": [8]}  the leaf OstraReputation appends for that snapshot
+//!   rep-prove  {"sk", "record": {fields as in rep-record, "epoch" optional}, "epoch", "index", "path": [[8] x 20],
+//!               "root": [8], "scope": "0x.." (32 bytes), "thresholds": {"min_completed", "min_clients", "min_volume",
+//!               "max_fail_permille", "min_tier", "max_first_day"}, "bind_hash": "0x.." (32 bytes)}
+//!              -> {"proof": "0x..", "public_values": [43], "pseudonym": [8], "idc": [8]}
+//!
+//! Reputation counts are decimal strings or numbers below 2^32, volumes decimal strings below 2^128. A reputation proof's
+//! epoch is the verifier's current one and must be the record's; its scope elements and binding values come from
+//! `scope` and `bind_hash` as OstraReputation derives them (keccak256(abi.encode(scope)), Notes.bindOf of
+//! keccak256(abi.encode(scope, recipient, challenge))).
+//!
 //! sk comes from `secret` once per agent; every note gets a fresh rho (one fresh tag per note). The change note
 //! belongs to the same sk under change_rho: drawn here from the operating system unless given, returned, and to be
 //! kept by the agent with the change note. bind_hash is the keccak-256 hash of the pool call the proof authorizes;
@@ -69,6 +83,63 @@ fn index(v: &Value) -> R<usize> {
     usize::try_from(n).ok().filter(|&i| i < 1 << DEPTH).ok_or_else(|| "index beyond the tree".into())
 }
 
+fn count(v: &Value, what: &str) -> R<u32> {
+    let s = match v {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        _ => return Err(format!("{what} must be a decimal string or a number")),
+    };
+    s.parse::<u32>().map_err(|_| format!("{what} out of range"))
+}
+
+fn record(v: &Value, epoch: u32) -> R<rep::Record> {
+    if !v.is_object() {
+        return Err("record must be an object".into());
+    }
+    let r = rep::Record {
+        completed: count(&v["completed"], "completed")?,
+        clients: count(&v["clients"], "clients")?,
+        volume: amount(&v["volume"])?,
+        rejected: count(&v["rejected"], "rejected")?,
+        expired: count(&v["expired"], "expired")?,
+        tier: count(&v["tier"], "tier")?,
+        first_day: count(&v["first_day"], "first_day")?,
+        epoch,
+    };
+    if !r.in_range() {
+        return Err("a record field is beyond what OstraReputation writes".into());
+    }
+    Ok(r)
+}
+
+fn thresholds(v: &Value) -> R<rep::Thresholds> {
+    if !v.is_object() {
+        return Err("thresholds must be an object".into());
+    }
+    let t = rep::Thresholds {
+        min_completed: count(&v["min_completed"], "min_completed")?,
+        min_clients: count(&v["min_clients"], "min_clients")?,
+        min_volume: amount(&v["min_volume"])?,
+        max_fail_permille: count(&v["max_fail_permille"], "max_fail_permille")?,
+        min_tier: count(&v["min_tier"], "min_tier")?,
+        max_first_day: count(&v["max_first_day"], "max_first_day")?,
+    };
+    rep::check_thresholds(&t).map_err(|_| "a threshold is out of range")?;
+    Ok(t)
+}
+
+fn path(v: &Value) -> R<[Digest; DEPTH]> {
+    let p = v.as_array().ok_or("path must be an array")?;
+    if p.len() != DEPTH {
+        return Err("path must have 20 siblings".into());
+    }
+    let mut siblings = [[Val::ZERO; 8]; DEPTH];
+    for (i, s) in siblings.iter_mut().enumerate() {
+        *s = digest(&p[i])?;
+    }
+    Ok(siblings)
+}
+
 fn out(d: &[Val]) -> Value {
     Value::Array(d.iter().map(|x| json!(x.as_canonical_u32().to_string())).collect())
 }
@@ -81,8 +152,8 @@ pub fn run(command: &str, request: &str) -> R<String> {
         let d = os_digest().map_err(|_| NO_RANDOMNESS)?;
         return Ok(json!({"digest": out(&d)}).to_string());
     }
-    if !matches!(command, "note" | "path" | "prove") {
-        return Err("usage: ostra-prove secret | note|path|prove < request.json".into());
+    if !matches!(command, "note" | "path" | "prove" | "rep-id" | "rep-record" | "rep-prove") {
+        return Err("usage: ostra-prove secret | note|path|prove|rep-id|rep-record|rep-prove < request.json".into());
     }
     let q: Value = serde_json::from_str(request).map_err(|_| "the request is not JSON")?;
     let answer = match command {
@@ -109,6 +180,41 @@ pub fn run(command: &str, request: &str) -> R<String> {
             }
             let path = tree.path(i);
             json!({"root": out(&tree.root()), "path": Value::Array(path.iter().map(|p| out(p)).collect())})
+        }
+        "rep-id" => json!({"idc": out(&rep::idc(&digest(&q["sk"])?))}),
+        "rep-record" => {
+            let r = record(&q["record"], count(&q["record"]["epoch"], "epoch")?)?;
+            let id = digest(&q["idc"])?;
+            json!({"record": out(&r.digest()), "leaf": out(&r.leaf(&id))})
+        }
+        "rep-prove" => {
+            let epoch = count(&q["epoch"], "epoch")?;
+            if !q["record"]["epoch"].is_null() && count(&q["record"]["epoch"], "epoch")? != epoch {
+                return Err("the record is not of the given epoch".into());
+            }
+            let w = rep::Rep {
+                sk: digest(&q["sk"])?,
+                record: record(&q["record"], epoch)?,
+                index: index(&q["index"])?,
+                path: path(&q["path"])?,
+                scope: rep::scope_elements(&hex_bytes::<32>(&q["scope"], "scope")?),
+                thresholds: thresholds(&q["thresholds"])?,
+                bind: bind_from_hash(&hex_bytes::<32>(&q["bind_hash"], "bind_hash")?),
+            };
+            if w.root() != digest(&q["root"])? {
+                return Err("the record and path do not lead to the given root".into());
+            }
+            if !rep::meets(&w.record, &w.thresholds) {
+                return Err("the record does not meet the thresholds".into());
+            }
+            let seed = os_seed().map_err(|_| NO_RANDOMNESS)?;
+            let (proof, pv) = rep::prove_rep(&w, seed).map_err(|e| format!("invalid reputation proof: {e:?}"))?;
+            if !rep::verify_rep(&proof, &pv) {
+                return Err("the proof does not verify".into());
+            }
+            let flat = flat::encode_width(&proof, rep::REP_WIDTH);
+            let hex: String = flat.iter().map(|b| format!("{b:02x}")).collect();
+            json!({"proof": format!("0x{hex}"), "public_values": out(&pv), "pseudonym": out(&w.pseudonym()), "idc": out(&w.idc())})
         }
         _ => {
             let p = q["path"].as_array().ok_or("path must be an array")?;

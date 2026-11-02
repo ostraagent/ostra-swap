@@ -364,6 +364,14 @@ contract SwapForkTest is Test {
         deal(OSTRA, to, _bal(OSTRA, to) + got);
     }
 
+    /// @dev ETH that buys at least 600,000 OSTRA in OSTRA's pool now (the top tier's 500,000 and a margin): 0.05 ETH,
+    ///      doubled while the live price asks for more (0.05 ETH bought about 351,000 on 2 Nov 2026).
+    function _tierEth() internal returns (uint256 ethIn) {
+        ethIn = 0.05 ether;
+        for (uint256 i; i < 10 && _quoteV4(_ostraV4(), true, ethIn) < 600_000e18; i++) ethIn *= 2;
+        assertGe(_quoteV4(_ostraV4(), true, ethIn), 600_000e18, "OSTRA's pool cannot sell the top tier");
+    }
+
     function _one(address a) internal pure returns (address[] memory list) {
         list = new address[](1);
         list[0] = a;
@@ -377,8 +385,8 @@ contract SwapForkTest is Test {
 
     function test_stake_tiers_lockAndWithdraw() public {
         assertEq(stake.feeBps(user), 20);
-        // A curve buy of 0.01 ETH got about 1.9 million OSTRA on 20 Oct 2026: 0.05 ETH covers every tier.
-        uint256 have = _buyOstra(user, 0.05 ether);
+        // What _tierEth buys covers every tier.
+        uint256 have = _buyOstra(user, _tierEth());
         assertGe(have, 500_000e18);
 
         vm.startPrank(user);
@@ -449,7 +457,7 @@ contract SwapForkTest is Test {
     }
 
     function test_walletSwap_feeFollowsLock() public {
-        _buyOstra(user, 0.05 ether);
+        _buyOstra(user, _tierEth());
         vm.startPrank(user);
         IERC20(OSTRA).approve(address(stake), type(uint256).max);
         stake.lock(250_000e18, _one(user));
@@ -482,7 +490,7 @@ contract SwapForkTest is Test {
 
     /// @dev swapAtBaseFee charges the base fee whatever is locked for the sender; swap from the same sender is free.
     function test_walletSwap_atBaseFee_ignoresTheLock() public {
-        _buyOstra(user, 0.05 ether);
+        _buyOstra(user, _tierEth());
         vm.startPrank(user);
         IERC20(OSTRA).approve(address(stake), type(uint256).max);
         stake.lock(500_000e18, _one(user));
@@ -636,7 +644,7 @@ contract SwapForkTest is Test {
         uint256 amountIn = 250e6;
         IOstraVault vault = _newVault(USDG, amountIn);
         address nvdaVault = makeAddr("nvdaVault");
-        _buyOstra(user, 0.05 ether);
+        _buyOstra(user, _tierEth());
         vm.startPrank(user);
         IERC20(OSTRA).approve(address(stake), type(uint256).max);
         stake.lock(100_000e18, _two(address(vault), nvdaVault));
@@ -656,7 +664,7 @@ contract SwapForkTest is Test {
     ///      full fee, because the fee is the recipient's.
     function test_escrow_namingAHoldersRefundToGainsNothing() public {
         address whale = makeAddr("whale");
-        _buyOstra(whale, 0.05 ether);
+        _buyOstra(whale, _tierEth());
         vm.startPrank(whale);
         IERC20(OSTRA).approve(address(stake), type(uint256).max);
         stake.lock(500_000e18, _one(whale));
@@ -1061,7 +1069,7 @@ contract SwapForkTest is Test {
 
     /// @dev A tranche's fee is the recipient's, like an immediate order's: a lock naming the recipient lowers it.
     function test_standing_trancheFeeIsTheRecipients() public {
-        _buyOstra(user, 0.05 ether);
+        _buyOstra(user, _tierEth());
         vm.startPrank(user);
         IERC20(OSTRA).approve(address(stake), type(uint256).max);
         stake.lock(100_000e18, _one(user));
@@ -1249,7 +1257,7 @@ contract SwapForkTest is Test {
     /// @dev Independent review: one position cannot lend its tier around, one account per transaction: while it
     ///      is locked, accounts can join its list (a new vault) but none can leave it.
     function test_stake_beneficiariesOnlyGrowWhileLocked() public {
-        _buyOstra(user, 0.05 ether);
+        _buyOstra(user, _tierEth());
         vm.startPrank(user);
         IERC20(OSTRA).approve(address(stake), type(uint256).max);
         stake.lock(500_000e18, _one(makeAddr("a")));

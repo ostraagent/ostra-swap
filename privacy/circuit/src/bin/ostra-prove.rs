@@ -10,6 +10,13 @@
 //!                        "bind_hash": "0x.." (32 bytes), "root": [8] (optional),
 //!                        "change_rho": [8] (optional)}
 //!                       -> {"proof": "0x..", "public_values": [48], "change_rho": [8], "change_tag": [8]}
+//!   ostra-prove rep-id     {"sk"} -> {"idc": [8]}
+//!   ostra-prove rep-record {"record": {"completed", "clients", "volume", "rejected", "expired", "tier",
+//!                           "first_day", "epoch"}, "idc": [8]} -> {"record": [8], "leaf": [8]}
+//!   ostra-prove rep-prove  {"sk", "record": {...}, "epoch", "index", "path": [[8] x 20], "root": [8],
+//!                           "scope": "0x.." (32 bytes), "thresholds": {"min_completed", "min_clients", "min_volume",
+//!                           "max_fail_permille", "min_tier", "max_first_day"}, "bind_hash": "0x.." (32 bytes)}
+//!                          -> {"proof": "0x..", "public_values": [43], "pseudonym": [8], "idc": [8]}
 
 use std::io::Read;
 

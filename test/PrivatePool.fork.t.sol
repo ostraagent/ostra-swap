@@ -556,9 +556,14 @@ contract PrivatePoolForkTest is Test {
     /// @dev Anyone may lock OSTRA for any account, the pool too: the private path still pays the base fee
     ///      (swapAtBaseFee), so such a lock cannot lower every note owner's fee at once (decided 21 Oct 2026).
     function test_privateSwap_baseFeeEvenWithALockNamingThePool() public {
-        // OSTRA graduated on 22 Oct 2026: the user holds what 0.05 ETH buys in its pool (ETH/OSTRA, fee 0, tick
-        // spacing 200, the Pons V2 meme hook).
-        uint256 bought = _quoteV4(PoolKey({currency0: address(0), currency1: OSTRA, fee: 0, tickSpacing: 200, hooks: PONS_HOOK}), true, 0.05 ether);
+        // OSTRA graduated on 22 Oct 2026: the user holds what ETH buys in its pool (ETH/OSTRA, fee 0, tick spacing 200,
+        // the Pons V2 meme hook): 0.05 ETH, doubled while it buys less than 600,000 OSTRA (the 500,000 locked and a
+        // margin; 0.05 ETH bought about 351,000 on 2 Nov 2026).
+        PoolKey memory ostraKey = PoolKey({currency0: address(0), currency1: OSTRA, fee: 0, tickSpacing: 200, hooks: PONS_HOOK});
+        uint256 ethIn = 0.05 ether;
+        for (uint256 i; i < 10 && _quoteV4(ostraKey, true, ethIn) < 600_000e18; i++) ethIn *= 2;
+        uint256 bought = _quoteV4(ostraKey, true, ethIn);
+        assertGe(bought, 600_000e18, "OSTRA's pool cannot sell what the lock needs");
         deal(OSTRA, user, IERC20(OSTRA).balanceOf(user) + bought);
         address[] memory list = new address[](1);
         list[0] = address(pool);
