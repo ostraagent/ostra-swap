@@ -35,6 +35,13 @@ export const MULTICALL3: Address = "0xcA11bde05977b3631167028862bE2a173976CA11";
 export const OSTRA_HOOK: Address = "0x63A784afb8905452aDceC471a45E555F5caE68cC";
 export const PONS_HOOK: Address = "0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044";
 export const ROUTABLE_HOOKS: readonly Address[] = ["0x0000000000000000000000000000000000000000", OSTRA_HOOK, PONS_HOOK];
+/**
+ * The highest fee of a hookless v4 pool a route may go through (hundredths of a bip: 10%). Anyone can make a
+ * hookless pool with any fee up to 100%, and on Robinhood Chain many are (of the 4,364 hookless v4 pools against
+ * native ETH, USDG or WETH made in the 2,000,000 blocks to 5 Nov 2026, 885 take over 50% of every swap): such a
+ * pool takes most of what goes through it, so it is left out.
+ */
+export const MAX_HOOKLESS_V4_FEE = 100_000;
 
 /** $OSTRA (Ostra Agent, 18 decimals, 1,000,000,000 supply). */
 export const OSTRA: Address = "0x68Ff81dFFF6eccefb74706fE1e0a86320CB2Eb96";

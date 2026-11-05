@@ -1,6 +1,6 @@
 # Writes sdk/src/abi.ts from the Foundry build (out/): the ABIs of OstraRouter, OstraStake, OstraBuyback and OstraPrivatePool,
-# OstraSwapEscrow's and OstraShieldEscrow's creation code (an escrow's address is CREATE2 of it) and OstraQuoteBatch (route.ts's
-# quotes). Run after `forge build`.
+# OstraSwapEscrow's and OstraShieldEscrow's creation code (an escrow's address is CREATE2 of it), OstraQuoteBatch (route.ts's
+# quotes) and OstraTokenCheck (tokencheck.ts). Run after `forge build`.
 import json, os, sys
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def art(f, c):
@@ -25,6 +25,14 @@ out.append(f'export const ostraQuoteBatchAbi = {json.dumps(batch["abi"], indent=
 out.append('')
 out.append('/** OstraQuoteBatch\'s creation code: run in an eth_call without `to`, never deployed (route.ts). */')
 out.append(f'export const OSTRA_QUOTE_BATCH_CREATION_CODE = "{batch["bytecode"]["object"]}" as const;')
+out.append('')
+check = art('OstraTokenCheck.sol', 'OstraTokenCheck')
+assert check['deployedBytecode']['object'].startswith('0x') and len(check['deployedBytecode']['object']) > 2
+assert not check['deployedBytecode'].get('immutableReferences'), 'OstraTokenCheck has no immutables: its runtime code is set by a state override'
+out.append(f'export const ostraTokenCheckAbi = {json.dumps(check["abi"], indent=2)} as const;')
+out.append('')
+out.append('/** OstraTokenCheck\'s runtime code: set at an address by a state override in an eth_call, never deployed (tokencheck.ts). */')
+out.append(f'export const OSTRA_TOKEN_CHECK_RUNTIME_CODE = "{check["deployedBytecode"]["object"]}" as const;')
 out.append('')
 open(os.path.join(root, 'sdk', 'src', 'abi.ts'), 'w').write('\n'.join(out))
 print('wrote sdk/src/abi.ts', len(code) // 2 - 1, 'bytes of escrow creation code')

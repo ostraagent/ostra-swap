@@ -8,4 +8,5 @@ export * from "./pools.ts";
 export * from "./private.ts";
 export * from "./reads.ts";
 export * from "./route.ts";
+export * from "./tokencheck.ts";
 export * from "./uniswap.ts";

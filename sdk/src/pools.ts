@@ -4,13 +4,13 @@
 // with more logs than the RPC returns is split in halves). Only pools with liquidity in range now are kept; which
 // one a leg uses is decided by quotes (route.ts), never by these numbers. Against the WETH hub a v4 pool may hold
 // native ETH instead (the leg unwraps or OstraRouter wraps). A v4 pool counts only with no hook or a hook in
-// ROUTABLE_HOOKS.
+// ROUTABLE_HOOKS, and a hookless one only with a fee up to MAX_HOOKLESS_V4_FEE.
 //
 // A PoolIndex remembers the v4 pools found per pair of currencies and the block it searched up to, so a pair is
 // searched from the start only once; data() and the constructor hand that memory to a file or anything else.
 
 import { encodeAbiParameters, encodeFunctionData, decodeFunctionResult, getAddress, hexToBigInt, keccak256, toHex, zeroAddress, type Address, type Hex, type PublicClient } from "viem";
-import { ETH, LOG_WINDOW_BLOCKS, MULTICALL3, ROUTABLE_HOOKS, UNISWAP_V3_FACTORY, UNISWAP_V4_POOL_MANAGER, V3_FEE_TIERS, WETH } from "./constants.ts";
+import { ETH, LOG_WINDOW_BLOCKS, MAX_HOOKLESS_V4_FEE, MULTICALL3, ROUTABLE_HOOKS, UNISWAP_V3_FACTORY, UNISWAP_V4_POOL_MANAGER, V3_FEE_TIERS, WETH } from "./constants.ts";
 import type { Pool, PoolKey } from "./legs.ts";
 import { initializeEvent, multicall3Abi, poolManagerAbi, v3FactoryAbi, v3PoolAbi } from "./uniswap.ts";
 
@@ -136,7 +136,12 @@ export async function hubPools(client: PublicClient, logsClient: PublicClient, i
   // Uniswap v4: the token's pools whose other currency is the hub's, with liquidity in range now.
   const records: V4PoolRecord[] = [];
   for (const side of hubCurrencies(h)) {
-    for (const p of await index.v4PoolsOfPair(logsClient, t, side)) if (ROUTABLE_HOOKS.includes(getAddress(p.key.hooks))) records.push(p);
+    for (const p of await index.v4PoolsOfPair(logsClient, t, side)) {
+      const hooks = getAddress(p.key.hooks);
+      if (!ROUTABLE_HOOKS.includes(hooks)) continue;
+      if (hooks === zeroAddress && p.key.fee > MAX_HOOKLESS_V4_FEE) continue;
+      records.push(p);
+    }
   }
   if (records.length > 0) {
     const slots = records.map((p) => stateSlot(p.id, LIQUIDITY_OFFSET));
